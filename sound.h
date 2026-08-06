@@ -1,0 +1,15 @@
+#ifndef INC_8_BIT_INTERPRETOR_SOUND_H
+#define INC_8_BIT_INTERPRETOR_SOUND_H
+
+
+
+
+
+
+
+
+
+
+
+
+#endif //INC_8_BIT_INTERPRETOR_SOUND_H
