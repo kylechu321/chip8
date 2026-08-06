@@ -1,3 +1,2 @@
 .idea
-.gitmodules
-/external
+./externalgit push
