@@ -1,4 +1,5 @@
 #include "cpu.h"
+#include "memory_directory.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -84,67 +85,6 @@ void chip8_tick_timers(Chip8 *chip8)
     }
 }
 
-/* Clears the display and sets draw_flag so the caller knows to redraw. */
-static void op_00E0_cls(Chip8 *chip8)
-{
-    memset(chip8->display, 0, sizeof(chip8->display));
-    chip8->draw_flag = 1;
-}
-
-/* Returns from a subroutine: pop the return address off the stack. */
-static void op_00EE_ret(Chip8 *chip8)
-{
-    if (chip8->sp == 0) {
-        fprintf(stderr, "chip8: stack underflow on RET\n");
-        return;
-    }
-    chip8->sp--;
-    chip8->pc = chip8->stack[chip8->sp];
-}
-
-/* Calls a subroutine at nnn: push the current PC, then jump. */
-static void op_2nnn_call(Chip8 *chip8, uint16_t nnn)
-{
-    if (chip8->sp >= CHIP8_STACK_SIZE) {
-        fprintf(stderr, "chip8: stack overflow on CALL\n");
-        return;
-    }
-    chip8->stack[chip8->sp] = chip8->pc;
-    chip8->sp++;
-    chip8->pc = nnn;
-}
-
-/* Draws an n-byte sprite from memory[I] at (Vx, Vy), XORed onto the
- * display, wrapping at screen edges, and sets VF on any pixel collision. */
-static void op_Dxyn_drw(Chip8 *chip8, uint8_t x, uint8_t y, uint8_t n)
-{
-    uint8_t start_x = chip8->v[x] % CHIP8_DISPLAY_WIDTH;
-    uint8_t start_y = chip8->v[y] % CHIP8_DISPLAY_HEIGHT;
-    chip8->v[0xF] = 0;
-
-    for (uint8_t row = 0; row < n; row++) {
-        uint8_t sprite_byte = chip8->memory[chip8->i + row];
-        uint8_t py = (start_y + row) % CHIP8_DISPLAY_HEIGHT;
-
-        for (uint8_t col = 0; col < 8; col++) {
-            uint8_t sprite_pixel = (sprite_byte >> (7 - col)) & 0x1;
-            if (sprite_pixel == 0) {
-                continue;
-            }
-
-            uint8_t px = (start_x + col) % CHIP8_DISPLAY_WIDTH;
-            uint16_t index = (uint16_t)py * CHIP8_DISPLAY_WIDTH + px;
-
-            if (chip8->display[index] == 1) {
-                chip8->v[0xF] = 1;
-            }
-            chip8->display[index] ^= 1;
-        }
-    }
-
-    chip8->draw_flag = 1;
-}
-
 void chip8_emulate_cycle(Chip8 *chip8)
 {
     /* If Fx0A is waiting for a key, do not fetch/advance until main.c
@@ -164,7 +104,7 @@ void chip8_emulate_cycle(Chip8 *chip8)
     uint8_t  kk  = opcode & 0x00FF;
 
     /* Advance PC before executing so jump/call/skip instructions can
- * simply overwrite it without needing to "undo" this increment. */
+     * simply overwrite it without needing to "undo" this increment. */
     chip8->pc += 2;
 
     switch (opcode & 0xF000) {
@@ -187,161 +127,55 @@ void chip8_emulate_cycle(Chip8 *chip8)
         break;
 
     case 0x3000: /* 3xkk - SE Vx, byte */
-        if (chip8->v[x] == kk) {
-            chip8->pc += 2;
-        }
+        op_3xkk_se(chip8, x, kk);
         break;
 
     case 0x4000: /* 4xkk - SNE Vx, byte */
-        if (chip8->v[x] != kk) {
-            chip8->pc += 2;
-        }
+        op_4xkk_sne(chip8, x, kk);
         break;
 
     case 0x5000: /* 5xy0 - SE Vx, Vy */
-        if (chip8->v[x] == chip8->v[y]) {
-            chip8->pc += 2;
-        }
+        op_5xy0_se(chip8, x, y);
         break;
 
     case 0x6000: /* 6xkk - LD Vx, byte */
-        chip8->v[x] = kk;
+        op_6xkk_ld(chip8, x, kk);
         break;
 
-    case 0x7000: /* 7xkk - ADD Vx, byte (no carry flag set) */
-        chip8->v[x] = (uint8_t)(chip8->v[x] + kk);
+    case 0x7000: /* 7xkk - ADD Vx, byte */
+        op_7xkk_add(chip8, x, kk);
         break;
 
-    case 0x8000:
-        switch (n) {
-        case 0x0: /* 8xy0 - LD Vx, Vy */
-            chip8->v[x] = chip8->v[y];
-            break;
-        case 0x1: /* 8xy1 - OR Vx, Vy */
-            chip8->v[x] |= chip8->v[y];
-            break;
-        case 0x2: /* 8xy2 - AND Vx, Vy */
-            chip8->v[x] &= chip8->v[y];
-            break;
-        case 0x3: /* 8xy3 - XOR Vx, Vy */
-            chip8->v[x] ^= chip8->v[y];
-            break;
-        case 0x4: { /* 8xy4 - ADD Vx, Vy, set VF = carry */
-            uint16_t sum = (uint16_t)chip8->v[x] + (uint16_t)chip8->v[y];
-            chip8->v[0xF] = (sum > 0xFF) ? 1 : 0;
-            chip8->v[x] = (uint8_t)sum;
-            break;
-        }case 0x5: { /* 8xy5 - SUB Vx, Vy, set VF = NOT borrow */
-            uint8_t vf = (chip8->v[x] > chip8->v[y]) ? 1 : 0;
-            chip8->v[x] = (uint8_t)(chip8->v[x] - chip8->v[y]);
-            chip8->v[0xF] = vf;
-            break;
-        }
-        case 0x6: { /* 8xy6 - SHR Vx, set VF = shifted-out bit */
-            uint8_t vf = chip8->v[x] & 0x1;
-            chip8->v[x] >>= 1;
-            chip8->v[0xF] = vf;
-            break;
-        }
-        case 0x7: { /* 8xy7 - SUBN Vx, Vy, set VF = NOT borrow */
-            uint8_t vf = (chip8->v[y] > chip8->v[x]) ? 1 : 0;
-            chip8->v[x] = (uint8_t)(chip8->v[y] - chip8->v[x]);
-            chip8->v[0xF] = vf;
-            break;
-        }
-        case 0xE: { /* 8xyE - SHL Vx, set VF = shifted-out bit */
-            uint8_t vf = (chip8->v[x] & 0x80) >> 7;
-            chip8->v[x] <<= 1;
-            chip8->v[0xF] = vf;
-            break;
-        }
-        default:
-            fprintf(stderr, "chip8: unknown 8xy_ opcode 0x%04X\n", opcode);
-            break;
-        }
+    case 0x8000: /* 8xy_ - ALU family */
+        op_8xy_alu(chip8, x, y, n);
         break;
 
     case 0x9000: /* 9xy0 - SNE Vx, Vy */
-        if (chip8->v[x] != chip8->v[y]) {
-            chip8->pc += 2;
-        }
+        op_9xy0_sne(chip8, x, y);
         break;
+
     case 0xA000: /* Annn - LD I, addr */
-        chip8->i = nnn;
+        op_Annn_ld_i(chip8, nnn);
         break;
 
     case 0xB000: /* Bnnn - JP V0, addr */
-        chip8->pc = (uint16_t)(nnn + chip8->v[0]);
+        op_Bnnn_jp_v0(chip8, nnn);
         break;
 
     case 0xC000: /* Cxkk - RND Vx, byte */
-        chip8->v[x] = (uint8_t)(rand() % 256) & kk;
+        op_Cxkk_rnd(chip8, x, kk);
         break;
 
     case 0xD000: /* Dxyn - DRW Vx, Vy, nibble */
         op_Dxyn_drw(chip8, x, y, n);
         break;
 
-    case 0xE000:
-        switch (kk) {
-        case 0x9E: /* Ex9E - SKP Vx */
-            if (chip8->keypad[chip8->v[x] & 0xF]) {
-                chip8->pc += 2;
-            }
-            break;
-        case 0xA1: /* ExA1 - SKNP Vx */
-            if (!chip8->keypad[chip8->v[x] & 0xF]) {
-                chip8->pc += 2;
-            }
-            break;
-        default:
-            fprintf(stderr, "chip8: unknown Ex__ opcode 0x%04X\n", opcode);
-            break;
-        }
+    case 0xE000: /* Ex__ - SKP/SKNP Vx */
+        op_Ex__key(chip8, x, kk);
         break;
 
-    case 0xF000:
-        switch (kk) {
-        case 0x07: /* Fx07 - LD Vx, DT */
-            chip8->v[x] = chip8->delay_timer;
-            break;
-        case 0x0A: /* Fx0A - LD Vx, K (blocking wait for key press) */
-            chip8->awaiting_key = 1;
-            chip8->awaiting_key_register = x;
-            break;
-        case 0x15: /* Fx15 - LD DT, Vx */
-            chip8->delay_timer = chip8->v[x];
-            break;
-        case 0x18: /* Fx18 - LD ST, Vx */
-            chip8->sound_timer = chip8->v[x];
-            break;
-        case 0x1E: /* Fx1E - ADD I, Vx */
-            chip8->i = (uint16_t)(chip8->i + chip8->v[x]);
-            break;
-        case 0x29: /* Fx29 - LD F, Vx: point I at the hex digit sprite */
-            chip8->i = CHIP8_FONT_START + (chip8->v[x] & 0xF) * CHIP8_FONT_BYTES_PER_CHAR;
-            break;
-        case 0x33: { /* Fx33 - LD B, Vx: store BCD digits at I, I+1, I+2 */
-            uint8_t value = chip8->v[x];
-            chip8->memory[chip8->i]     = value / 100;
-            chip8->memory[chip8->i + 1] = (value / 10) % 10;
-            chip8->memory[chip8->i + 2] = value % 10;
-            break;
-        }
-        case 0x55: /* Fx55 - LD [I], Vx: dump V0..Vx to memory */
-            for (uint8_t reg = 0; reg <= x; reg++) {
-                chip8->memory[chip8->i + reg] = chip8->v[reg];
-            }
-            break;
-        case 0x65: /* Fx65 - LD Vx, [I]: load V0..Vx from memory */
-            for (uint8_t reg = 0; reg <= x; reg++) {
-                chip8->v[reg] = chip8->memory[chip8->i + reg];
-            }
-            break;
-        default:
-            fprintf(stderr, "chip8: unknown Fx__ opcode 0x%04X\n", opcode);
-            break;
-        }
+    case 0xF000: /* Fx__ - timers, key wait, I-register, BCD, reg dump/load */
+        op_Fx__misc(chip8, x, kk);
         break;
 
     default:
