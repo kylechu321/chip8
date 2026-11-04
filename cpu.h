@@ -34,19 +34,19 @@ typedef struct {
     uint8_t awaiting_key_register;
 } Chip8;
 
-/* Resets all state and loads the built-in hexadecimal font into memory. */
+// Resets all state and loads the built-in hexadecimal font into memory.
 void chip8_init(Chip8 *chip8);
 
-/* Loads a ROM file from disk into memory starting at CHIP8_PROGRAM_START.
- * Returns 1 on success, 0 on failure (file missing or too large). */
+// Loads a ROM file from disk into memory starting at CHIP8_PROGRAM_START.
+// Returns 1 on success, 0 on failure (file missing or too large). */
 int chip8_load_rom(Chip8 *chip8, const char *path);
 
-/* Fetches, decodes, and executes exactly one instruction. */
+// Fetches, decodes, and executes exactly one instruction.
 void chip8_emulate_cycle(Chip8 *chip8);
 
-/* Decrements the delay and sound timers by 1 if they are non-zero.
- * Should be called at 60Hz, independent of the CPU instruction rate. */
+// Decrements the delay and sound timers by 1 if they are non-zero.
+// Should be called at 60Hz, independent of the CPU instruction rate.
 void chip8_tick_timers(Chip8 *chip8);
 
 
-#endif //INC_8_BIT_INTERPRETOR_CPU_H
+#endif
