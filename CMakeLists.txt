@@ -8,5 +8,9 @@ add_executable(8_bit_interpretor cpu.c
         sound.c
         sound.h
         memory_directory.c
+        memory_directory.h
         main.c
 )
+
+add_subdirectory(external/SDL EXCLUDE_FROM_ALL)
+target_link_libraries(8_bit_interpretor PRIVATE SDL3::SDL3)

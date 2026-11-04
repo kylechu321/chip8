@@ -2,23 +2,24 @@
 #include <stdio.h>
 #include <stdbool.h>
 
-/* How large each Chip-8 pixel is drawn as, in real screen pixels. */
+#include "cpu.c"
+
+// How large each Chip-8 pixel is drawn as, in real screen pixels.
 #define PIXEL_SCALE 12
 
-/* How many Chip-8 instructions to execute per second. This is decoupled
- * from the 60Hz timer/display refresh rate; most ROMs run well somewhere
- * between 500-1000Hz. */
+// How many Chip-8 instructions to execute per second. This is decoupled
+// from the 60Hz timer/display refresh rate; most ROMs run well somewhere
+// between 500-1000Hz.
 #define INSTRUCTIONS_PER_SECOND 700
 
-/* Maps SDL scancodes to the Chip-8's 16-key hex keypad, using the common
-* layout that mirrors the original keypad's physical position:
-*
-*   Chip-8 keypad      Maps to keyboard
-*   1 2 3 C            1 2 3 4
-*   4 5 6 D      ->    Q W E R
-*   7 8 9 E            A S D F
-*   A 0 B F            Z X C V
-*/
+// Maps SDL scancodes to the Chip-8's 16-key hex keypad, using the common
+// layout that mirrors the original keypad's physical position:
+
+//   Chip-8 keypad      Maps to keyboard
+//   1 2 3 C            1 2 3 4
+//   4 5 6 D      ->    Q W E R
+//   7 8 9 E            A S D F
+//   A 0 B F            Z X C V
 
 static const SDL_Scancode KEYMAP[CHIP8_NUM_KEYS] = {
     SDL_SCANCODE_X, /* 0 */
@@ -39,8 +40,8 @@ static const SDL_Scancode KEYMAP[CHIP8_NUM_KEYS] = {
     SDL_SCANCODE_V, /* F */
 };
 
-/* Reads the current keyboard state into chip8->keypad, and if a key was
- * pressed while Fx0A was blocking, resolves that instruction. */
+// Reads the current keyboard state into chip8->keypad, and if a key was pressed while Fx0A was blocking,
+// resolves that instruction.
 static void update_keypad(Chip8 *chip8)
 {
     const uint8_t *keyboard_state = SDL_GetKeyboardState(NULL);
@@ -60,8 +61,7 @@ static void update_keypad(Chip8 *chip8)
     }
 }
 
-/* Redraws the entire display texture from chip8->display. Each Chip-8
- * pixel becomes a PIXEL_SCALE x PIXEL_SCALE filled rectangle. */
+// Redraws the entire display texture from chip8->display. Each Chip-8 pixel becomes a PIXEL_SCALE x PIXEL_SCALE filled rectangle.
 static void render_display(SDL_Renderer *renderer, const Chip8 *chip8)
 {
     SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
@@ -148,17 +148,16 @@ int main(int argc, char *argv[])
 
         update_keypad(&chip8);
 
-        /* Run CHIP-8 instructions at a fixed rate, independent of the
-         * host's frame rate, using an accumulator so timing stays
-         * consistent even if a frame takes longer than expected. */
+        // Run CHIP-8 instructions at a fixed rate, independent of the host's frame rate,
+        // using an accumulator so timing stays consistent even if a frame takes longer than expected.
         instruction_accumulator += elapsed_seconds;
         double seconds_per_instruction = 1.0 / INSTRUCTIONS_PER_SECOND;
         while (instruction_accumulator >= seconds_per_instruction) {
             chip8_emulate_cycle(&chip8);
             instruction_accumulator -= seconds_per_instruction;
         }
-        /* Delay and sound timers always tick at 60Hz regardless of
-         * instruction speed. */
+
+        // Delay and sound timers always tick at 60Hz regardless of instruction speed.
         timer_accumulator += elapsed_seconds;
         const double seconds_per_timer_tick = 1.0 / 60.0;
         while (timer_accumulator >= seconds_per_timer_tick) {
@@ -167,8 +166,7 @@ int main(int argc, char *argv[])
         }
 
         if (chip8.sound_timer > 0) {
-            /* Placeholder for audio: a real build would start a tone here.
-             * See the README for how to wire up SDL_AudioDevice. */
+            // Placeholder for audio:
         }
 
         if (chip8.draw_flag) {
@@ -176,7 +174,8 @@ int main(int argc, char *argv[])
             chip8.draw_flag = 0;
         }
 
-        SDL_Delay(1); /* Yield briefly so we don't busy-spin the CPU. */
+        // Yield briefly so we don't busy-spin the CPU.
+        SDL_Delay(1);
     }
     SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);
